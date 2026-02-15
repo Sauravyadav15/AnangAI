@@ -23,15 +23,37 @@ ADMINS = [
 ]
 ADMIN_TOKEN = "anang_founder_portal_token"
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.vercel\.app)(:\d+)?$",
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
+# CORS configuration - VERY permissive for development
+# In production, restrict this to specific origins
+import os
+is_dev = os.getenv("ENV", "development") == "development"
+
+if is_dev:
+    # Development: Allow all origins
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins in development
+        allow_credentials=False,  # Must be False when allow_origins is ["*"]
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
+else:
+    # Production: Restrict to specific origins
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+        ],
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.vercel\.app)(:\d+)?$",
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "database.txt"
@@ -751,29 +773,52 @@ async def upload_license(
 
 
 @app.post("/api/chat")
-def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest):
     """
     Chat endpoint that uses RAG to answer questions about Kingston.
     Uses the ask() function from router.py to generate responses.
     """
+    import asyncio
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         question = request.question.strip()
         if not question:
             raise HTTPException(status_code=400, detail="Question cannot be empty")
         
         language = request.language or "en"  # Default to English
-        answer = ask(question, language)
+        logger.info(f"Received chat request: question='{question[:50]}...', language={language}")
+        
+        # Run the ask function in a thread pool to avoid blocking
+        # Use asyncio.to_thread if available (Python 3.9+), otherwise use run_in_executor
+        try:
+            answer = await asyncio.to_thread(ask, question, language)
+        except AttributeError:
+            # Fallback for Python < 3.9
+            loop = asyncio.get_event_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                answer = await loop.run_in_executor(executor, ask, question, language)
+        
+        logger.info(f"Generated answer length: {len(answer) if answer else 0}")
         
         if answer is None:
+            logger.error("ask() returned None")
             raise HTTPException(
                 status_code=500,
                 detail="Failed to generate response. Please check backend logs."
             )
         
-        return {"answer": answer, "question": question}
+        response_data = {"answer": answer, "question": question}
+        logger.info(f"Returning response with answer length: {len(answer)}")
+        return response_data
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        logger.error(f"Exception in chat_endpoint: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 

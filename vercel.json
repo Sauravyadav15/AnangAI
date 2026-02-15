@@ -7,10 +7,6 @@
       "config": {
         "distDir": "dist"
       }
-    },
-    {
-      "src": "api/[...path].py",
-      "use": "@vercel/python"
     }
   ],
   "routes": [

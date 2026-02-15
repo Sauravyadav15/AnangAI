@@ -5,6 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
+from functools import lru_cache
 
 load_dotenv()
 
@@ -470,8 +471,19 @@ def split_place_entries(content: str) -> List[str]:
     return [e.strip() for e in entries if e.strip() and not e.startswith("KINGSTON") and not e.startswith("===")]
 
 
-def load_all_data() -> Dict[str, Dict[str, List[Dict]]]:
-    """Load all data from discovered files and organize by category"""
+# Cache data loading to avoid reloading on every request
+_cached_data = None
+_cache_timestamp = None
+
+def load_all_data(force_reload: bool = False) -> Dict[str, Dict[str, List[Dict]]]:
+    """Load all data from discovered files and organize by category.
+    Uses caching to avoid reloading on every request."""
+    global _cached_data, _cache_timestamp
+    
+    # Return cached data if available and not forcing reload
+    if not force_reload and _cached_data is not None:
+        return _cached_data
+    
     data_files = discover_data_files()
     all_data = {
         "food": {},
@@ -518,6 +530,10 @@ def load_all_data() -> Dict[str, Dict[str, List[Dict]]]:
                         parsed_entries.append(entry)
             all_data["events"][file_name] = parsed_entries
             print(f"✅ Loaded {len(parsed_entries)} entries from {file_name}")
+    
+    # Cache the data
+    _cached_data = all_data
+    _cache_timestamp = datetime.now()
     
     return all_data
 
@@ -1297,13 +1313,13 @@ Answer:"""
     # Call OpenRouter API
     print("Calling OpenRouter API...")
     try:
-        with httpx.Client() as client:
+        with httpx.Client(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
             response = client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/your-repo",
+                    "HTTP-Referer": "https://github.com/Sauravyadav15/AnangAI",
                     "X-Title": "Kingston City Guide RAG System"
                 },
                 json={
@@ -1314,9 +1330,8 @@ Answer:"""
                             "content": prompt
                         }
                     ],
-                    "temperature": 0.7
-                },
-                timeout=60
+                    "temperature": 0.6
+                }
             )
             
             print(f"Response status: {response.status_code}")
