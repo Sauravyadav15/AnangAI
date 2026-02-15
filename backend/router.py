@@ -10,7 +10,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 # Get API key from environment variable, fallback to hardcoded (for development only)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "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"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Define folder paths
 FOOD_DIR = BASE_DIR / "Food"
@@ -811,20 +811,39 @@ def find_relevant_context(question: str, all_data: Dict) -> Dict:
         food_count = sum(1 for kw in food_indicators if kw in question_lower)
         event_count = sum(1 for kw in event_indicators if kw in question_lower)
         
-        # Determine primary intent - be more strict about place detection
-        has_place_query = place_count > 0 or any(kw in question_lower for kw in PLACE_KEYWORDS)
-        has_food_query = food_count > 0 and not has_place_query  # Only if places not mentioned
-        has_event_query = event_count > 0 and not has_place_query  # Only if places not mentioned
+        # Determine primary intent - allow multiple categories when explicitly mentioned
+        # Check for place-related phrases first (more reliable than single keywords)
+        has_place_phrase = any(phrase in question_lower for phrase in [
+            "places to visit", "place to visit", "places to see", "place to see",
+            "good places", "best places", "places in", "visit", "visiting",
+            "tourist attractions", "attractions", "sightseeing", "things to see"
+        ])
+        has_place_query = place_count > 0 or has_place_phrase or any(kw in question_lower for kw in PLACE_KEYWORDS)
+        has_food_query = food_count > 0
+        has_event_query = event_count > 0
         
-        # If primary intent is places, EXCLUDE food and events completely
-        if place_count > 0:
+        # Check for explicit requests for multiple categories (e.g., "places and restaurants")
+        explicit_both = (has_place_query and has_food_query) or any(phrase in question_lower for phrase in [
+            "places and restaurants", "restaurants and places", "places and food", "food and places",
+            "attractions and restaurants", "restaurants and attractions", "places and dining", "dining and places"
+        ])
+        
+        # If both places and food are explicitly mentioned, include both (places prioritized)
+        if explicit_both:
+            has_place_query = True
+            has_food_query = True
+            has_event_query = False  # Exclude events unless also mentioned
+        # If only places mentioned (no food), exclude food and events
+        # Also check for place phrases to catch vague queries like "good places to visit"
+        elif (place_count > 0 or has_place_phrase) and food_count == 0:
             has_food_query = False
             has_event_query = False
-        # If primary intent is food, exclude places and events
+            has_place_query = True  # Ensure places are included
+        # If only food mentioned (no places), exclude places and events
         elif food_count > 0 and place_count == 0:
             has_place_query = False
             has_event_query = False
-        # If primary intent is events, exclude food and places
+        # If only events mentioned, exclude food and places
         elif event_count > 0 and place_count == 0 and food_count == 0:
             has_food_query = False
             has_place_query = False
@@ -849,19 +868,28 @@ def find_relevant_context(question: str, all_data: Dict) -> Dict:
                         sorted_entries = sort_food_entries_by_certification(entries)
                         relevant_context["food"][file_key] = sorted_entries if wants_full_list else sorted_entries[:10]
         
-        # Places: Return entries based on full_list preference
+        # Places: Return entries based on full_list preference (prioritized - return more entries)
         if has_place_query:
             for file_key, entries in all_data["places"].items():
                 if entries:
                     # For vague place queries, be more lenient - try keyword matching first
                     # Use return_all_if_no_keywords for very vague queries (like "good places to visit")
-                    is_vague_place_query = (len(meaningful_keywords) <= 3 and not location_keywords) or any(word in question_lower for word in ["good", "best", "recommend", "some", "tell me about", "places to visit"])
+                    is_vague_place_query = (
+                        len(meaningful_keywords) <= 3 and not location_keywords
+                    ) or any(phrase in question_lower for phrase in [
+                        "good places", "best places", "recommend", "some places", 
+                        "tell me about", "places to visit", "place to visit",
+                        "show me", "what places", "where to visit", "places in kingston"
+                    ])
                     matches = search_in_entries(entries, search_keywords, location_keywords, return_all_if_no_keywords=is_vague_place_query)
                     if matches:
-                        relevant_context["places"][file_key] = matches if wants_full_list else matches[:5]
+                        # Places are prioritized - return more entries (10 instead of 5) when not full list
+                        relevant_context["places"][file_key] = matches if wants_full_list else matches[:10]
                     else:
-                        # If no keyword matches but it's a place query, return sample entries anyway
-                        relevant_context["places"][file_key] = entries if wants_full_list else entries[:5]
+                        # If no keyword matches but it's a place query, ALWAYS return entries anyway
+                        # This ensures places are shown even for very vague queries
+                        # Places are prioritized - return more entries (10 instead of 5) when not full list
+                        relevant_context["places"][file_key] = entries if wants_full_list else entries[:10]
         
         # Events: Return entries with date filtering and full_list preference
         if has_event_query:
@@ -934,10 +962,47 @@ def clean_response_formatting(text: str) -> str:
 
 
 def format_context_for_prompt(context_dict: Dict) -> str:
-    """Format context dictionary into a readable string for the prompt"""
+    """Format context dictionary into a readable string for the prompt. Places are prioritized when both places and food are present."""
     parts = []
     
-    # Format Food entries
+    # Check if both places and food are present - prioritize places
+    has_places = bool(context_dict.get("places"))
+    has_food = bool(context_dict.get("food"))
+    
+    # Format Places entries FIRST (prioritized)
+    if context_dict["places"]:
+        place_parts = []
+        for file_key, entries in context_dict["places"].items():
+            if entries:
+                place_parts.append(f"\n=== PLACES TO VISIT ===")
+                for i, entry in enumerate(entries, 1):
+                    place_parts.append(f"\n{i}. {entry.get('name', 'N/A')}")
+                    if entry.get('location'):
+                        place_parts.append(f"   Location: {entry['location']}")
+                    if entry.get('url'):
+                        place_parts.append(f"   Find Location: {entry['url']}")
+                    if entry.get('about'):
+                        place_parts.append(f"   About: {entry['about']}")
+                    if entry.get('hours'):
+                        place_parts.append(f"   Hours: {entry['hours']}")
+                    if entry.get('fees'):
+                        place_parts.append(f"   Fees: {entry['fees']}")
+                    # Always include Accessibility and Washrooms for places (even if null) - these are critical fields
+                    # Check if the field exists in the entry (was parsed from data)
+                    if 'accessibility' in entry:
+                        accessibility_value = entry.get('accessibility', 'null')
+                        # Always include the line, even if value is null
+                        place_parts.append(f"   Accessibility: {accessibility_value}")
+                    # If accessibility field doesn't exist in entry, it means it wasn't in the source data
+                    # In that case, we still want to show it as null so LLM knows to include it
+                    if 'washrooms' in entry:
+                        washrooms_value = entry.get('washrooms', 'null')
+                        # Always include the line, even if value is null
+                        place_parts.append(f"   Washrooms: {washrooms_value}")
+        if place_parts:
+            parts.append('\n'.join(place_parts))
+    
+    # Format Food entries (after places when both are present)
     if context_dict["food"]:
         food_parts = []
         for file_key, entries in context_dict["food"].items():
@@ -964,31 +1029,6 @@ def format_context_for_prompt(context_dict: Dict) -> str:
                         food_parts.append(f"   Green Plate Certification: {entry['certification']}")
         if food_parts:
             parts.append('\n'.join(food_parts))
-    
-    # Format Places entries
-    if context_dict["places"]:
-        place_parts = []
-        for file_key, entries in context_dict["places"].items():
-            if entries:
-                place_parts.append(f"\n=== PLACES TO VISIT ===")
-                for i, entry in enumerate(entries, 1):
-                    place_parts.append(f"\n{i}. {entry.get('name', 'N/A')}")
-                    if entry.get('location'):
-                        place_parts.append(f"   Location: {entry['location']}")
-                    if entry.get('url'):
-                        place_parts.append(f"   Find Location: {entry['url']}")
-                    if entry.get('about'):
-                        place_parts.append(f"   About: {entry['about']}")
-                    if entry.get('hours'):
-                        place_parts.append(f"   Hours: {entry['hours']}")
-                    if entry.get('fees'):
-                        place_parts.append(f"   Fees: {entry['fees']}")
-                    if entry.get('accessibility') and entry.get('accessibility').lower() not in ['null', 'none', '']:
-                        place_parts.append(f"   Accessibility: {entry['accessibility']}")
-                    if entry.get('washrooms') and entry.get('washrooms').lower() not in ['null', 'none', '']:
-                        place_parts.append(f"   Washrooms: {entry['washrooms']}")
-        if place_parts:
-            parts.append('\n'.join(place_parts))
     
     # Format Events entries
     if context_dict["events"]:
@@ -1056,7 +1096,13 @@ def ask(question: str, language: str = "en"):
         strong_place_indicators = ["place", "places", "visit", "visiting", "attraction", "attractions", "sightseeing", "tourist", "destination", "see", "explore", "exploring", "museum", "museums", "park", "parks"]
         place_count = sum(1 for kw in strong_place_indicators if kw in question_lower)
         
-        has_place_query = place_count > 0 or any(kw in question_lower for kw in PLACE_KEYWORDS)
+        # Check for place-related phrases (more reliable for vague queries)
+        has_place_phrase = any(phrase in question_lower for phrase in [
+            "places to visit", "place to visit", "places to see", "place to see",
+            "good places", "best places", "places in", "visit", "visiting",
+            "tourist attractions", "attractions", "sightseeing", "things to see"
+        ])
+        has_place_query = place_count > 0 or has_place_phrase or any(kw in question_lower for kw in PLACE_KEYWORDS)
         has_food_query = any(kw in question_lower for kw in ["food", "eat", "restaurant", "cafe", "bakery", "pub", "dining"]) and not has_place_query
         has_event_query = any(kw in question_lower for kw in EVENT_KEYWORDS) and not has_place_query
         
@@ -1113,7 +1159,7 @@ def ask(question: str, language: str = "en"):
     
     # Determine response language and create language-specific instructions
     if language == "fr":
-        language_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: You MUST respond entirely in French. All text, including section headers, labels, and descriptions, must be in French. Use French translations: 'Location' → 'Emplacement', 'Hours' → 'Heures', 'Find Location' → 'Trouver l'emplacement', 'About' → 'À propos', 'Fees' → 'Frais', 'Date' → 'Date', 'Venue' → 'Lieu', 'Notes' → 'Notes', 'Veg/Vegan' → 'Végétarien/Végan', 'Green Plate Certification' → 'Certification Green Plate'."
+        language_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: You MUST respond entirely in French. All text, including section headers, labels, and descriptions, must be in French. Use French translations: 'Location' → 'Emplacement', 'Hours' → 'Heures', 'Find Location' → 'Trouver l'emplacement', 'About' → 'À propos', 'Fees' → 'Frais', 'Date' → 'Date', 'Venue' → 'Lieu', 'Notes' → 'Notes', 'Veg/Vegan' → 'Végétarien/Végan', 'Green Plate Certification' → 'Certification Green Plate', 'Accessibility' → 'Accessibilité', 'Washrooms' → 'Toilettes'."
         section_headers = "**CAFÉS**, **RESTAURANTS**, **BOULANGERIES**, **PUBS**, **MAGASINS**, **LIEUX**, **ÉVÉNEMENTS**"
         example_format = """
 **CAFÉS**
@@ -1123,6 +1169,17 @@ def ask(question: str, language: str = "en"):
 • Heures: Lun-Dim: 7h00 - 18h00
 • Notes: Un café local connu pour son atmosphère chaleureuse
 • Végétarien/Végan: Oui
+
+**LIEUX**
+
+**Fort Henry**
+• Emplacement: 1 Fort Henry Dr.
+• Trouver l'emplacement: [URL]
+• À propos: Une forteresse militaire britannique massive du 19e siècle
+• Heures: Quotidien: 10h00 – 17h00 (mai–sept)
+• Frais: ~20,00 $ - 25,00 $
+• Accessibilité: Accès partiel - Les bâtiments historiques varient en accessibilité
+• Toilettes: Toilettes accessibles disponibles
 """
     else:
         language_instruction = "\n\nCRITICAL LANGUAGE INSTRUCTION: You MUST respond entirely in English. All text, including section headers, labels, and descriptions, must be in English."
@@ -1135,6 +1192,17 @@ def ask(question: str, language: str = "en"):
 • Hours: Mon-Sun: 7:00am - 6:00pm
 • Notes: A local coffee shop known for its cozy atmosphere
 • Veg/Vegan: Yes
+
+**PLACES**
+
+**Fort Henry**
+• Location: 1 Fort Henry Dr.
+• Find Location: [URL]
+• About: A massive 19th-century British military fortress
+• Hours: Daily: 10:00 AM – 5:00 PM (May–Sept)
+• Fees: ~$20.00 - $25.00
+• Accessibility: Partial Access - Historic buildings vary in accessibility
+• Washrooms: Accessible washrooms available
 """
     
     # Create intelligent prompt
@@ -1144,7 +1212,9 @@ INTERPRETATION & INTENT:
 - Interpret the user's question by intent, not just exact words. If they ask for "thrif stores", "cheap clothes", "secondhand shops", or "places to buy used stuff", use the SHOPS data (thrift, consignment, vintage) and answer helpfully.
 - Ignore minor typos and misspellings (e.g. resturant, cafee, thrif, cloths). Assume they mean the closest sensible category (restaurant, cafe, thrift, clothes) and answer from the relevant data.
 - If the question could match several types (e.g. "stores" = shops or places), prefer the category that has matching data and give a clear, concrete answer. Do not say "I don't have information" if the data below clearly contains relevant entries—use them.
-- Be conversational and concise. Lead with the most relevant results; add a short friendly line if helpful (e.g. "Here are some thrift and consignment options in Kingston:").
+- CRITICAL: If the user asks about "places", "places to visit", "good places", "best places", "attractions", "things to see", or similar place-related queries, you MUST show PLACES data. Places are the TOP PRIORITY when mentioned.
+- When both PLACES and RESTAURANTS/FOOD are requested, ALWAYS show PLACES first (prioritize places section), then show restaurants/food sections after.
+- Be conversational and concise. Lead with the most relevant results; add a short friendly line if helpful (e.g. "Here are some great places to visit in Kingston:").
 
 Available Data:
 {combined_context}
@@ -1182,8 +1252,8 @@ CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
    • About: [description]
    • Hours: [hours]
    • Fees: [price]
-   • Accessibility: [Full Access / Partial Access / Limited / null - ONLY include if available in data]
-   • Washrooms: [Available / Partial Available / Not Available / null - ONLY include if available in data]
+   • Accessibility: [MUST include this line if "Accessibility:" appears in the data below - use the exact value from data: Full Access, Partial Access, Limited, Accessible with Assistance, or null]
+   • Washrooms: [MUST include this line if "Washrooms:" appears in the data below - use the exact value from data: Available, Partial Available, Not Available, or null]
    
    For Events:
    **Event Name**
@@ -1198,14 +1268,18 @@ CRITICAL FORMATTING RULES - FOLLOW EXACTLY:
 6. Put exactly ONE blank line after section headers
 7. If information is missing, skip that line entirely (don't write "N/A", "TBD", or empty fields)
 
-8. For Places, include: **Place Name**, Location, "Find Location: [URL]" if URL is available, About, Hours, Fees, Accessibility (if available), Washrooms (if available)
-9. For Events, include: **Event Name**, Date (or Date Range), Venue, Location, and "Find Location: [URL]" if URL is available in the data
-10. For Food Places, include: **Business Name**, Location, "Find Location: [URL]" if URL is available, Hours, Notes, Veg/Vegan options, Green Plate Certification (Gold/Silver/Bronze) if available
-10a. For Shops (stores, clothing, boutiques), include: **Store Name**, Location, "Find Location: [URL]" if available, Hours, Notes, Category, Local Sourcing if available
+8. CRITICAL FOR PLACES - Accessibility and Washrooms: When displaying Places, you MUST include both "Accessibility:" and "Washrooms:" lines if they appear in the data below. These fields are ESSENTIAL for users with accessibility needs. Even if the value is "null" or "NULL" in the data, still include the line (e.g., "• Accessibility: null" or "• Washrooms: null"). Look for these fields in the context data - they are formatted as "Accessibility: [value]" and "Washrooms: [value]" in the data provided below. DO NOT SKIP THESE FIELDS - they are critical information.
 
-11. Order items logically (alphabetically or by relevance)
+9. For Places, ALWAYS include: **Place Name**, Location, "Find Location: [URL]" if URL is available, About, Hours, Fees, AND both Accessibility and Washrooms lines (as specified in rule 8 above). Missing these fields is a critical error.
 
-11. SMART QUERY HANDLING:
+10. CRITICAL FOR RESTAURANTS/FOOD - Green Plate Certification: When displaying restaurants, cafes, bakeries, or any food establishments, you MUST include the "Green Plate Certification:" line if it appears in the data below (even if the value is "null"). This shows sustainability certification (Gold, Silver, Bronze) which is important information. DO NOT SKIP THIS FIELD.
+11. For Events, include: **Event Name**, Date (or Date Range), Venue, Location, and "Find Location: [URL]" if URL is available in the data
+12. For Food Places, ALWAYS include: **Business Name**, Location, "Find Location: [URL]" if URL is available, Hours, Notes, Veg/Vegan options (if available), AND Green Plate Certification (Gold/Silver/Bronze) if it appears in the data (even if null). Missing Green Plate Certification when it's in the data is an error.
+12a. For Shops (stores, clothing, boutiques), include: **Store Name**, Location, "Find Location: [URL]" if available, Hours, Notes, Category, Local Sourcing if available
+
+13. Order items logically (alphabetically or by relevance). When both PLACES and RESTAURANTS sections are present, PLACES section must come FIRST.
+
+14. SMART QUERY HANDLING:
     - If user asks for "full list", "all events", "complete list", "everything" - show ALL matching items
     - If user asks for events on a specific date (e.g., "events on feb 8") - show ALL events that fall on that date (including events that start before and end after that date)
     - If user asks for events in a month (e.g., "events in february") - show ALL events in that month

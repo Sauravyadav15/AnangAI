@@ -22,7 +22,7 @@ Location: 71 Brock St
 Hours: Mon-Sun: 11:30am-9pm (10pm for cocktails)
 Local Sourcing: Ontario produce & meats
 Veg/Vegan Options: Yes
-Green Plate Certification: null
+Green Plate Certification: Silver
 Notes: Modern Italian restaurant
 
 Business Name: Chez Piggy
@@ -62,7 +62,7 @@ Location: 39 Brock St
 Hours: Mon-Thu: 11:30am-9pm, Fri-Sat: 11:30am-10pm, Sun: 11:30am-9pm
 Local Sourcing: Ontario produce & meats
 Veg/Vegan Options: Yes
-Green Plate Certification: null
+Green Plate Certification: Silver
 Notes: Popular Italian restaurant
 
 Business Name: Red House Tavern

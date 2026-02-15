@@ -6,7 +6,7 @@ Location: 115 Princess St
 Hours: Mon: 9am-4pm, Tue-Wed: 8am-5pm, Thu-Fri: 8am-5:30pm, Sat: 9am-5:30pm, Sun: 10am-4pm
 Local Sourcing: Local baked goods
 Veg/Vegan Options: Limited
-Green Plate Certification: null
+Green Plate Certification: silver
 Notes: Historic Kingston bakery
 
 Business Name: Pan Chancho Bakery
@@ -16,11 +16,3 @@ Local Sourcing: Ontario produce, local bakery goods
 Veg/Vegan Options: Yes
 Green Plate Certification: null
 Notes: Kingston's most famous bakery
-
-Business Name: demobakery
-Location: 1234 bagot st.
-Hours: Mon- Fri 10am to 5pm
-Local Sourcing: yes
-Veg/Vegan Options: yes
-Green Plate Certification: null
-Notes: it's a real good bakery, make from eggs and vegan also available
