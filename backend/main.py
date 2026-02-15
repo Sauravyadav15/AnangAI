@@ -903,6 +903,6 @@ def get_discovery_data(category_id: str = Query(..., description="Category ID (f
         raise HTTPException(status_code=500, detail=f"Failed to load data: {str(e)}")
 
 
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "ok"}

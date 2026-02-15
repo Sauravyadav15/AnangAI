@@ -1,5 +1,4 @@
 import sys
-import os
 from pathlib import Path
 
 # Add backend directory to Python path
@@ -10,6 +9,18 @@ sys.path.insert(0, str(backend_path))
 from main import app
 from mangum import Mangum
 
-# Wrap FastAPI app with Mangum for Vercel serverless functions
-handler = Mangum(app, lifespan="off")
+# Wrap FastAPI app with Mangum
+# Vercel will pass requests to this handler
+# The path will be like "/health" when accessing "/api/health"
+# But FastAPI routes expect "/api/health", so we need to adjust
+def handler(event, context):
+    # Adjust the path to include /api/ prefix
+    if 'path' in event:
+        original_path = event['path']
+        if not original_path.startswith('/api/'):
+            event['path'] = f'/api{original_path}' if original_path.startswith('/') else f'/api/{original_path}'
+    
+    # Use Mangum to handle the request
+    mangum_handler = Mangum(app, lifespan="off")
+    return mangum_handler(event, context)
 
