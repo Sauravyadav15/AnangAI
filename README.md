@@ -45,15 +45,6 @@ Set these in **Project Settings → Environment Variables** as needed:
 ### 4) Deploy
 Every push to your connected branch triggers deployment.
 
-## Troubleshooting: frontend works but backend returns 404/empty on Vercel
-
-If your frontend deploys but API calls fail, verify:
-- your requests go to `/api/...` (not a different base URL)
-- environment variables are set (`OPENROUTER_API_KEY`, `ENV`)
-- Vercel function logs for `api/[...path].py`
-
-This repo includes a path-compat wrapper in `api/[...path].py` to handle Vercel path forwarding differences.
-
 ## Useful checks
 
 ```bash
