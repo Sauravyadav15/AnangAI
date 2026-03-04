@@ -23,31 +23,36 @@ ADMINS = [
 ]
 ADMIN_TOKEN = "anang_founder_portal_token"
 
-# CORS configuration - VERY permissive for development
-# In production, restrict this to specific origins
+# CORS configuration
 import os
-is_dev = os.getenv("ENV", "development") == "development"
+
+is_vercel = os.getenv("VERCEL") == "1"
+env_name = os.getenv("ENV", "development").lower()
+is_dev = env_name == "development" and not is_vercel
 
 if is_dev:
-    # Development: Allow all origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Allow all origins in development
-        allow_credentials=False,  # Must be False when allow_origins is ["*"]
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["*"],
     )
 else:
-    # Production: Restrict to specific origins
+    frontend_origin = os.getenv("FRONTEND_ORIGIN", "").strip()
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ]
+    if frontend_origin:
+        allowed_origins.append(frontend_origin)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:5174",
-            "http://127.0.0.1:5174",
-        ],
+        allow_origins=allowed_origins,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.vercel\.app)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
