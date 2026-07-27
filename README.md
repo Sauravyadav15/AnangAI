@@ -176,4 +176,4 @@ python -m compileall api backend
 
 ## 👤 Author
 
-Built by [Saurav Yadav](https://github.com/Sauravyadav15).
+Built by [Saurav Kumar](https://github.com/Sauravyadav15).
