@@ -172,23 +172,7 @@ npm run build
 python -m compileall api backend
 ```
 
-## ⚠️ Known Limitations / Roadmap
 
-- **Data persistence:** business/application data currently lives in flat `.txt` files (`database.txt`, `applications.txt`) under `backend/`. This works locally but is **ephemeral on serverless deployments** — a restart wipes it. Migrating to a managed database (e.g. Postgres, SQLite + persistent volume, or a hosted DB) is the top priority before real production use.
-- **Retrieval is keyword-based, not embeddings-based.** It's fast and dependency-light, but a semantic/vector search layer would generalize better to phrasing the current fuzzy-matching doesn't anticipate.
-- **Data freshness:** local business/event listings are manually curated text files; there's no automated re-scrape/refresh pipeline yet.
-- **Auth hardening:** password hashing exists, but admin credentials are currently defined directly in code rather than sourced from environment variables — see the security note below.
-
-## 🔒 Security Note
-
-The admin allow-list and admin token in `backend/main.py` (`ADMINS`, `ADMIN_TOKEN`) are currently hardcoded in source, which means they're visible to anyone with access to this repository. Before making this repo public (or if it already is), it's worth:
-1. Moving admin emails/passwords and the admin token into environment variables.
-2. Rotating any credentials that have been committed to git history.
-3. Hashing all admin passwords the same way user passwords are handled (`hash_password`), rather than storing any in plaintext.
-
-## 📄 License
-
-No license file is currently included in this repo. If you intend for others to use, modify, or contribute to this project, consider adding one (MIT is a common, permissive default for portfolio projects).
 
 ## 👤 Author
 
