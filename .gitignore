@@ -28,5 +28,6 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 backend/__pycache__
 backend/*.pyc
+backend/venv/
 .env
 .env.local
